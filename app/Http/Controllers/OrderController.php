@@ -3,63 +3,100 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\OrderItem;
 use Illuminate\Http\Request;
+use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
 
 class OrderController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(): View
     {
-        //
+        $orders = Order::latest()->get();
+        return view('orders.index', compact('orders'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    public function create(): View
     {
-        //
+        $products = Product::all();
+        return view('orders.create', compact('products'));
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
-        //
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'products' => 'required|array|min:1',
+            'products.*.id' => 'required|exists:products,id',
+            'products.*.quantity' => 'required|integer|min:1',
+        ]);
+
+        // Check stock availability before committing anything
+        foreach ($validated['products'] as $item) {
+            $product = Product::find($item['id']);
+            if ($product->stock_quantity < $item['quantity']) {
+                return back()->withErrors([
+                    'products' => "Not enough stock for {$product->name}. Available: {$product->stock_quantity}"
+                ]);
+            }
+        }
+
+        $order = Order::create([
+            'customer_name' => $validated['customer_name'],
+            'status' => 'pending',
+            'total' => 0,
+        ]);
+
+        $total = 0;
+
+        foreach ($validated['products'] as $item) {
+            $product = Product::find($item['id']);
+
+            OrderItem::create([
+                'order_id' => $order->id,
+                'product_id' => $product->id,
+                'quantity' => $item['quantity'],
+                'price_at_purchase' => $product->price,
+            ]);
+
+            $product->decrement('stock_quantity', $item['quantity']);
+            $total += $product->price * $item['quantity'];
+        }
+
+        $order->update(['total' => $total]);
+
+        return redirect()->route('orders.index')->with('success', 'Order created successfully.');
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Order $order)
+    public function show(Order $order): View
     {
-        //
+        $order->load('orderItems.product');
+        return view('orders.show', compact('order'));
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Order $order)
+    public function edit(Order $order): View
     {
-        //
+        $products = Product::all();
+        $order->load('orderItems');
+        return view('orders.edit', compact('order', 'products'));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Order $order)
+    public function update(Request $request, Order $order): RedirectResponse
     {
-        //
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'status' => 'required|in:pending,completed,cancelled',
+        ]);
+
+        $order->update($validated);
+
+        return redirect()->route('orders.index')->with('success', 'Order updated.');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Order $order)
+    public function destroy(Order $order): RedirectResponse
     {
-        //
+        $order->delete();
+        return redirect()->route('orders.index')->with('success', 'Order deleted.');
     }
 }
