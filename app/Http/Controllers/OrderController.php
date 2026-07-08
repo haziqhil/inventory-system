@@ -34,7 +34,7 @@ class OrderController extends Controller
 
         // Check stock availability before committing anything
         foreach ($validated['products'] as $item) {
-            $product = Product::find($item['id']);
+            $product = Product::findOrFail((int) $item['id']);
             if ($product->stock_quantity < $item['quantity']) {
                 return back()->withErrors([
                     'products' => "Not enough stock for {$product->name}. Available: {$product->stock_quantity}"
@@ -51,7 +51,7 @@ class OrderController extends Controller
         $total = 0;
 
         foreach ($validated['products'] as $item) {
-            $product = Product::find($item['id']);
+            $product = Product::findOrFail((int) $item['id']);
 
             OrderItem::create([
                 'order_id' => $order->id,
